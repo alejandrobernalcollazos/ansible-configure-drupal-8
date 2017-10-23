@@ -1,0 +1,188 @@
+---
+- hosts: prod
+  become: true
+  gather_facts: no
+  pre_tasks:
+    - name: 'install python2'
+      raw: sudo apt-get update && sudo apt-get -y install python-simplejson
+  vars:
+    mysql_drupal_db: drupal
+    mysql_root_user: root
+    mysql_root_password: 1969
+  tasks:
+    - name: Update the repositories
+      apt: update_cache=yes
+      tags:
+         - update
+    - name: Create www-data user
+      user:
+        name: www-data
+        home: /home/www-data
+        password: "$6$MME0tfo.rhN4/6qo$wdmXJR8/DDFuqkX5Q7fE.vAi5mhaoEESYBJd6RnEi7td../3IORPUWUi84dcT7gyr49kuk1i06ewGbyFNpbTi/"
+        shell: /bin/bash
+        groups: sudo
+      tags:
+         - www-data
+    - name: Install zip
+      apt: name={{item}} state=present
+      with_items:
+        - zip
+        - unzip
+      tags:
+        - zip
+    - name: Install php
+      apt: name={{item}} state=present
+      with_items:
+        - php7.0-fpm
+        - php7.0-mbstring
+        - php7.0-xml
+        - php7.0-mysql
+        - php7.0-common
+        - php7.0-gd
+        - php7.0-json
+        - php7.0-cli
+        - php7.0-curl
+      tags:
+        - php
+    - name: Start php7.0-fpm
+      systemd:
+        name: php7.0-fpm
+        state: started
+        enabled: True
+      tags:
+        - start-php
+    - name: Install nginx
+      apt: name={{item}} state=present
+      with_items:
+        - nginx
+      tags:
+        - nginx
+    - name: Start nginx
+      systemd:
+        name: nginx
+        state: started
+        enabled: True
+      tags:
+        - start-nginx
+    - name: Install MySQL
+      apt: name={{item}} state=present
+      with_items:
+        - python-mysqldb
+        - mysql-server
+      tags:
+        - install-mysql
+    - name: Start the MySQL service
+      systemd:
+        name: mysql
+        state: started
+        enabled: True
+      tags:
+        - start-mysql
+    - name: Update mysql root password
+      mysql_user:
+        name: root
+        host: "{{item}}"
+        password: "{{mysql_root_password}}"
+        login_user: root
+        login_password: "{{mysql_root_password}}"
+      with_items:
+        - localhost
+      tags:
+        - update-mysql-root-password
+    - name: Create database drupal
+      mysql_db:
+        name: drupal
+        state: present
+        login_user: root
+        login_password: "{{mysql_root_password}}"
+      tags:
+        - create-db-drupal
+    - name: Create user drupal
+      mysql_user:
+        name: drupal
+        password: 1969
+        priv: '*.*:ALL'
+        state: present
+        login_user: root
+        login_password: "{{mysql_root_password}}"
+      tags:
+        - create-db-user-drupal
+    - name: Settup nginx web configuration
+      copy:
+        src: "{{item.src}}"
+        dest: "{{item.dest}}"
+        owner: root
+        group: root
+        mode: 0644
+      with_items:
+        - src: "resources/nginx/web"
+          dest: "/etc/nginx/sites-available/"
+      tags:
+        - settup-web-config
+    - name: link web to sites-enabled
+      file:
+        src: /etc/nginx/sites-available/web
+        dest: /etc/nginx/sites-enabled/web
+        owner: root
+        group: root
+        state: link
+      tags:
+        - link-nginx-web-configuration
+    - name: Unlink default configuration
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      tags:
+        - unlink-nginx-default-configuration
+    - name: Reload nginx
+      systemd:
+        name: nginx
+        state: reloaded
+      tags:
+        - reload-nginx
+    - name: Create web directory
+      file:
+        path: /home/www-data/web
+        state: directory
+        owner: www-data
+        group: www-data
+      tags:
+        - create-web-directory
+    - name: Install composer
+      shell: |
+        php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+        php composer-setup.php
+        php -r "unlink('composer-setup.php');"
+      args:
+       chdir : /home/www-data/
+      become: true
+      become_user: www-data
+      tags:
+        - install-composer
+    - name: Update the bashrc file
+      copy:
+        src: "{{item.src}}"
+        dest: "{{item.dest}}"
+        owner: www-data
+        group: www-data
+        mode: 0644
+      with_items:
+        - src: "resources/bashrc/bashrc"
+          dest: "/home/www-data/.bashrc"
+      tags:
+        - update-the-bashrc
+    - name: Update the bashrc with source
+      shell: . /home/www-data/.bashrc
+      become: true
+      become_user: www-data
+      tags:
+        - update-the.bashrc-with-source
+    - name: Install Drush with composer
+      shell: ./composer.phar global require drush/drush
+      args:
+        chdir: /home/www-data/
+      become: true
+      become_user: www-data
+      tags:
+        - install-drush-with-composer
+
